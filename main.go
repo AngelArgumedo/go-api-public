@@ -6,11 +6,10 @@ import (
 )
 
 func main() {
-	// Define las rutas para la API
-	http.HandleFunc("/login", LoginHandler)          // Ruta para iniciar sesión y obtener JWT
-	http.HandleFunc("/protected", ProtectedEndpoint) // Ruta protegida que requiere JWT válido
+	http.HandleFunc("/register", CreateUserHandler)  // Nueva ruta para registrar usuarios
+	http.HandleFunc("/login", LoginHandler)          // Ruta para iniciar sesión
+	http.HandleFunc("/protected", ProtectedEndpoint) // Ruta protegida que requiere autenticación
 
-	// Inicia el servidor en el puerto 8080
 	log.Println("Servidor iniciado en http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
