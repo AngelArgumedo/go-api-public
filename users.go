@@ -4,32 +4,19 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
+	"go-auth-api/db"
 	"log"
 	"net/http"
 
 	"golang.org/x/crypto/argon2"
 )
 
-// Estructura para manejar usuarios
 type Credentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
-// Mapa para almacenar usuarios
-var users = make(map[string]string)
-
-// Configuración de parámetros para Argon2
-const (
-	timeCost   = 1
-	memoryCost = 64 * 1024
-	threads    = 4
-	keyLength  = 32
-	saltLength = 16
-)
-
-// Generar el hash Argon2 para una contraseña
+// Generar hash de contraseña usando Argon2
 func generateHash(password string) string {
 	salt := make([]byte, saltLength)
 	if _, err := rand.Read(salt); err != nil {
@@ -40,10 +27,9 @@ func generateHash(password string) string {
 	return base64.RawStdEncoding.EncodeToString(combined)
 }
 
-// Manejador para registrar un nuevo usuario
+// Manejador para crear usuario
 func CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	var creds Credentials
-
 	err := json.NewDecoder(r.Body).Decode(&creds)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -51,16 +37,30 @@ func CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verificar si el usuario ya existe
-	if _, exists := users[creds.Username]; exists {
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM users WHERE username=$1)`
+	err = db.DB.QueryRow(query, creds.Username).Scan(&exists)
+	if err != nil {
+		http.Error(w, "Error al verificar el usuario", http.StatusInternalServerError)
+		return
+	}
+
+	if exists {
 		w.WriteHeader(http.StatusConflict) // 409: Conflict
-		fmt.Fprintln(w, "El usuario ya existe")
+		http.Error(w, "El usuario ya existe", http.StatusConflict)
 		return
 	}
 
 	// Generar hash de la contraseña y almacenar el usuario
 	hashedPassword := generateHash(creds.Password)
-	users[creds.Username] = hashedPassword
+	insertQuery := `INSERT INTO users (username, password) VALUES ($1, $2)`
+	_, err = db.DB.Exec(insertQuery, creds.Username, hashedPassword)
+	if err != nil {
+		log.Println("Error al crear usuario:", err)
+		http.Error(w, "Error al crear usuario", http.StatusInternalServerError)
+		return
+	}
 
 	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintln(w, "Usuario creado exitosamente")
+	w.Write([]byte("Usuario creado exitosamente"))
 }

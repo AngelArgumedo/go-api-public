@@ -1,15 +1,21 @@
 package main
 
 import (
+	"go-auth-api/db"
 	"log"
 	"net/http"
 )
 
 func main() {
-	http.HandleFunc("/register", CreateUserHandler)  // Nueva ruta para registrar usuarios
-	http.HandleFunc("/login", LoginHandler)          // Ruta para iniciar sesión
-	http.HandleFunc("/protected", ProtectedEndpoint) // Ruta protegida que requiere autenticación
+	// Inicializar base de datos
+	db.InitDB()
 
-	log.Println("Servidor iniciado en http://localhost:8080")
+	// Configurar rutas
+	http.HandleFunc("/register", CreateUserHandler)
+	http.HandleFunc("/login", LoginHandler)
+	http.HandleFunc("/protected", ProtectedEndpoint)
+
+	// Iniciar servidor
+	log.Println("Servidor corriendo en http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
+
+	"go-auth-api/db"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/argon2"
@@ -19,7 +22,15 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// Función para verificar la contraseña utilizando Argon2
+const (
+	timeCost   = 1         // Tiempo de procesamiento (número de iteraciones)
+	memoryCost = 64 * 1024 // Memoria utilizada en KB
+	threads    = 4         // Número de threads
+	keyLength  = 32        // Longitud del hash generado
+	saltLength = 16        // Longitud del salt
+)
+
+// Verificar contraseña utilizando Argon2
 func verifyHash(password, hash string) bool {
 	decodedHash, err := base64.RawStdEncoding.DecodeString(hash)
 	if err != nil {
@@ -30,6 +41,21 @@ func verifyHash(password, hash string) bool {
 	return bytes.Equal(expectedHash, decodedHash[saltLength:])
 }
 
+// Obtener el hash almacenado de la base de datos
+func getStoredHash(db *sql.DB, username string) (string, error) {
+	var storedHash string
+	query := `SELECT password FROM users WHERE username = $1`
+	err := db.QueryRow(query, username).Scan(&storedHash)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil // No se encontró el usuario
+		}
+		return "", err // Otro tipo de error
+	}
+	return storedHash, nil
+}
+
+// Manejo de login
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var creds Credentials
 	err := json.NewDecoder(r.Body).Decode(&creds)
@@ -37,11 +63,21 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	storedHash, ok := users[creds.Username]
-	if !ok || !verifyHash(creds.Password, storedHash) {
+
+	// Obtener el hash almacenado
+	storedHash, err := getStoredHash(db.DB, creds.Username)
+	if err != nil {
+		http.Error(w, "Error al verificar el usuario", http.StatusInternalServerError)
+		return
+	}
+
+	// Verificar si el usuario existe y si la contraseña es correcta
+	if storedHash == "" || !verifyHash(creds.Password, storedHash) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+
+	// Generar token JWT
 	expirationTime := time.Now().Add(15 * time.Minute)
 	claims := &Claims{
 		Username: creds.Username,
@@ -55,6 +91,8 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+
+	// Establecer cookie del token
 	http.SetCookie(w, &http.Cookie{
 		Name:    "token",
 		Value:   tokenString,
@@ -62,6 +100,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Middleware para proteger endpoints
 func ProtectedEndpoint(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("token")
 	if err != nil {
