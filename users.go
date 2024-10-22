@@ -14,6 +14,7 @@ import (
 type Credentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	Role     string `json:"role"` // Nuevo campo para el rol del usuario
 }
 
 // Generar hash de contraseña usando Argon2
@@ -27,7 +28,7 @@ func generateHash(password string) string {
 	return base64.RawStdEncoding.EncodeToString(combined)
 }
 
-// Manejador para crear usuario
+// Manejador para crear usuario con roles
 func CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	var creds Credentials
 	err := json.NewDecoder(r.Body).Decode(&creds)
@@ -51,10 +52,15 @@ func CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Si no se especifica un rol, asignar el rol por defecto "user"
+	if creds.Role == "" {
+		creds.Role = "user"
+	}
+
 	// Generar hash de la contraseña y almacenar el usuario
 	hashedPassword := generateHash(creds.Password)
-	insertQuery := `INSERT INTO users (username, password) VALUES ($1, $2)`
-	_, err = db.DB.Exec(insertQuery, creds.Username, hashedPassword)
+	insertQuery := `INSERT INTO users (username, password, role) VALUES ($1, $2, $3)`
+	_, err = db.DB.Exec(insertQuery, creds.Username, hashedPassword, creds.Role)
 	if err != nil {
 		log.Println("Error al crear usuario:", err)
 		http.Error(w, "Error al crear usuario", http.StatusInternalServerError)

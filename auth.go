@@ -19,6 +19,7 @@ var jwtKey = []byte("my_secret_key")
 
 type Claims struct {
 	Username string `json:"username"`
+	Role     string `json:"role"` // Añadir el rol del usuario a los claims
 	jwt.RegisteredClaims
 }
 
@@ -41,18 +42,18 @@ func verifyHash(password, hash string) bool {
 	return bytes.Equal(expectedHash, decodedHash[saltLength:])
 }
 
-// Obtener el hash almacenado de la base de datos
-func getStoredHash(db *sql.DB, username string) (string, error) {
-	var storedHash string
-	query := `SELECT password FROM users WHERE username = $1`
-	err := db.QueryRow(query, username).Scan(&storedHash)
+// Obtener el hash y rol almacenados de la base de datos
+func getUserDetails(db *sql.DB, username string) (string, string, error) {
+	var storedHash, role string
+	query := `SELECT password, role FROM users WHERE username = $1`
+	err := db.QueryRow(query, username).Scan(&storedHash, &role)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", nil // No se encontró el usuario
+			return "", "", nil // No se encontró el usuario
 		}
-		return "", err // Otro tipo de error
+		return "", "", err // Otro tipo de error
 	}
-	return storedHash, nil
+	return storedHash, role, nil
 }
 
 // Manejo de login
@@ -64,8 +65,8 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Obtener el hash almacenado
-	storedHash, err := getStoredHash(db.DB, creds.Username)
+	// Obtener el hash y rol almacenado
+	storedHash, role, err := getUserDetails(db.DB, creds.Username)
 	if err != nil {
 		http.Error(w, "Error al verificar el usuario", http.StatusInternalServerError)
 		return
@@ -77,10 +78,11 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generar token JWT
+	// Generar token JWT que incluya el rol del usuario
 	expirationTime := time.Now().Add(15 * time.Minute)
 	claims := &Claims{
 		Username: creds.Username,
+		Role:     role, // Añadir el rol del usuario a los claims
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
 		},
@@ -129,5 +131,5 @@ func ProtectedEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Bienvenido, %s", claims.Username)
+	fmt.Fprintf(w, "Bienvenido, %s. Rol: %s", claims.Username, claims.Role)
 }
